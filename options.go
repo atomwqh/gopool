@@ -13,8 +13,11 @@ func loadOptions(options ...Options) *Options {
 }
 
 type Options struct {
-	ExpiryDuration   time.Duration
-	PreAlloc         bool
+	//
+	ExpiryDuration time.Duration
+	//
+	PreAlloc bool
+	//
 	MaxBlockingTasks int
 	Nonblocking      bool
 	PanicHandler     func(interface{})

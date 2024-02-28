@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	syncx "github.com/atomwqh/gopool/tree/main/sync"
+	syncx "gopool/sync"
 )
 
 type Pool struct {
@@ -60,5 +60,21 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 		capacity: int32(size),
 		lock:     syncx.NewSpinLock(),
 		options:  opts,
+	}
+	// 初始化状态
+	p.workerCache.New = func() interface{} {
+		return &goWorker{
+			pool: p,
+			task: make(chan func(), workerChanCap),
+		}
+	}
+
+	if p.options.PreAlloc {
+		if size == -1 {
+			return nil, ErrInvalidPreAllocSize
+		}
+		p.workers = newWorkerQueue(queueTypeLoopQueue, size)
+	} else {
+		p.workers = newWorkerQueue(queueTypeStack, 0)
 	}
 }
