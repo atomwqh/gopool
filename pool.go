@@ -22,7 +22,7 @@ type Pool struct {
 
 	cond *sync.Cond // 等待一个闲置的goWorker
 
-	workerCache sync.Pool //
+	workerCache sync.Pool
 
 	waiting int32 // 标识出处于等待状态的协程数量
 
