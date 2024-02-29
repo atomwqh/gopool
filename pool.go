@@ -272,3 +272,24 @@ func (p *Pool) revertWorker(worker *goWorker) bool {
 
 	return true
 }
+
+// Release 关闭这个 Pool 并且释放 worker queue
+func (p *Pool) Release() {
+	if !atomic.CompareAndSwapInt32(&p.state, OPENED, CLOSED) {
+		return
+	}
+
+	if p.stopPurge != nil {
+		p.stopPurge()
+		p.stopPurge = nil
+	}
+	p.stopTicktock()
+	p.stopTicktock = nil
+
+	p.lock.Lock()
+	p.workers.reset()
+	p.lock.Unlock()
+
+	// 此时可能还有请求等在 retrieveWorker ，所以需要唤醒它们避免永久阻塞
+	p.cond.Broadcast()
+}

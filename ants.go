@@ -64,3 +64,18 @@ type Logger interface {
 	// Printf 格式化输出日志，类似于fmt.Printf，但具体的实现交给具体实现接口的函数
 	Printf(format string, args ...interface{})
 }
+
+// Release 关闭默认的 Pool
+func Release() {
+	defaultAntsPool.Release()
+}
+
+// Submit 提交一个任务到 Pool
+func Submit(task func()) error {
+	return defaultAntsPool.Submit(task)
+}
+
+// Running 返回当前正在运行的协程
+func Running() int {
+	return defaultAntsPool.Running()
+}
