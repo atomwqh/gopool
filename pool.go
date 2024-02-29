@@ -118,6 +118,10 @@ func (p *Pool) goTicktock() {
 	go p.ticktock(ctx)
 }
 
+func (p *Pool) nowTime() time.Time {
+	return p.now.Load().(time.Time)
+}
+
 // NewPool 按照配置实例化一个协程池
 func NewPool(size int, options ...Option) (*Pool, error) {
 	if size <= 0 {
@@ -167,6 +171,19 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 	return p, nil
 }
 
+// Submit 提交任务到协程池
+func (p *Pool) Submit(task func()) error {
+	if p.IsClosed() {
+		return ErrPoolClosed
+	}
+
+	w, err := p.retrieveWorker()
+	if w != nil {
+		w.inputFunc(task)
+	}
+	return err
+}
+
 // IsClosed 表示协程池是否关闭
 func (p *Pool) IsClosed() bool {
 	return atomic.LoadInt32(&p.state) == CLOSED
@@ -180,4 +197,78 @@ func (p *Pool) Running() int {
 // Waiting 返回正在等待执行的任务数量
 func (p *Pool) Waiting() int {
 	return int(atomic.LoadInt32(&p.waiting))
+}
+
+// addRunning 增加一个运行协程
+func (p *Pool) addRunning(delta int) {
+	atomic.AddInt32(&p.running, int32(delta))
+}
+
+// addWaiting 增加一个等待协程
+func (p *Pool) addWaiting(delta int) {
+	atomic.AddInt32(&p.waiting, int32(delta))
+}
+
+// Cap 返回这个 Pool 的容量
+func (p *Pool) Cap() int {
+	return int(atomic.LoadInt32(&p.capacity))
+}
+
+// retrieveWorker 返回一个可用的 goWorker 来运行任务
+func (p *Pool) retrieveWorker() (w worker, err error) {
+	p.lock.Lock()
+
+retry:
+	// 先看看能不能从队列中取出可用的 goWorker
+	if w = p.workers.detach(); w != nil {
+		p.lock.Unlock()
+		return
+	}
+
+	// 如果 worker queue 为空，并且还没有用尽 pool 就直接生成一个 goWorker
+	if capacity := p.Cap(); capacity == -1 || capacity > p.Running() {
+		p.lock.Unlock()
+		w = p.workerCache.Get().(*goWorker)
+		w.run()
+		return
+	}
+	// 处于 nonblocking 状态或者等待的请求太多了就报错
+	if p.options.Nonblocking || (p.options.MaxBlockingTasks != 0 && p.Waiting() >= p.options.MaxBlockingTasks) {
+		p.lock.Unlock()
+		return nil, ErrPoolOverload
+	}
+
+	// 否则只能阻塞住，等待一个可用的 goWorker 放进 Pool
+	p.addWaiting(1)
+	p.cond.Wait() // 等待一个可用的 goWorker
+	p.addWaiting(-1)
+
+	if p.IsClosed() {
+		p.lock.Unlock()
+		return nil, ErrPoolClosed
+	}
+
+	goto retry
+}
+
+// revertWorker 将一个 goWorker 放回 Pool ，循环利用池里的 goroutines
+func (p *Pool) revertWorker(worker *goWorker) bool {
+	if capacity := p.Cap(); (capacity > 0 && p.Running() > capacity) || p.IsClosed() {
+		p.cond.Broadcast()
+		return false
+	}
+	worker.lastUsed = p.nowTime()
+	p.lock.Lock()
+	if p.IsClosed() {
+		p.lock.Unlock()
+		return false
+	}
+	if err := p.workers.insert(worker); err != nil {
+		p.lock.Unlock()
+		return false
+	}
+	p.cond.Signal()
+	p.lock.Unlock()
+
+	return true
 }
