@@ -57,6 +57,8 @@ var (
 	defaultAntsPool, _ = NewPool(DefaultAntsPoolSize)
 )
 
+const nowTimeUpdateInterval = 500 * time.Millisecond // 0.5秒
+
 // Logger 定义日志记录的抽象类
 type Logger interface {
 	// Printf 格式化输出日志，类似于fmt.Printf，但具体的实现交给具体实现接口的函数
